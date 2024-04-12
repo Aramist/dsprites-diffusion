@@ -1,4 +1,5 @@
 import os
+import time
 from pathlib import Path
 
 import h5py
@@ -12,12 +13,25 @@ class DSpritesDataset(Dataset):
         self.path = path
         self.handle = h5py.File(path, "r")
 
+        self.index: np.ndarray
+        self.build_index()
+
     def __len__(self):
-        return len(self.handle["imgs"])
+        # return len(self.handle["imgs"])
+        return len(self.index)
+
+    def build_index(self):
+        mask = self.handle["latents/classes"][:, :5] == np.array([0, 0, 0, 0, 0])
+        mask = mask.all(axis=1)
+        indices = np.flatnonzero(mask)
+        print(f"Found {len(indices)} images with the specified latent values")
+        self.index = indices
 
     def __getitem__(self, idx: int):
-        img = self.handle["imgs"][idx, ...].astype(np.float32)
-        latent = self.handle["latents/values"][idx, :].astype(np.float32)
+        true_idx = self.index[idx]
+
+        img = self.handle["imgs"][true_idx, ...].astype(np.float32)
+        latent = self.handle["latents/values"][true_idx, :].astype(np.float32)
 
         img = (img - img.mean()) / img.std()
 
@@ -38,7 +52,7 @@ def get_dataloader() -> tuple[DataLoader, DataLoader]:
         generator=torch.Generator(),
     )
 
-    train_loader = DataLoader(train, batch_size=64, shuffle=True)
-    val_loader = DataLoader(test, batch_size=64, shuffle=True)
+    train_loader = DataLoader(train, batch_size=8, shuffle=True)
+    val_loader = DataLoader(test, batch_size=8, shuffle=True)
 
     return train_loader, val_loader

@@ -1,0 +1,1 @@
+rsync -av --exclude '*.sh' ./* flatiron:ceph/dsprite_project

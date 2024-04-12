@@ -1,17 +1,20 @@
+import time
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch import optim
+from tqdm import tqdm
 
 from dataloader import get_dataloader
 from model import DiffusionModel
 
 
 class Trainer:
-    def __init__(self, *, num_epochs: int = 10, learning_rate: float = 1e-3):
-        self.model = DiffusionModel(var_min=0, var_max=0)
+    def __init__(self, *, num_epochs: int = 10, learning_rate: float = 1e-4):
+        start_time = time.time()
+        self.model = DiffusionModel(var_min=1e-4, var_max=1.0)
         self.num_epochs = num_epochs
         self.train_loader, self.val_loader = get_dataloader()
         if torch.cuda.is_available():
@@ -23,26 +26,40 @@ class Trainer:
 
         self.model = self.model.to(self.device)
         self.optimizer = optim.SGD(self.model.parameters(), lr=learning_rate)
+        end_time = time.time()
+        print(f"Time taken to initialize Trainer: {end_time - start_time:.2f}s")
 
     def train(self):
         for epoch in range(self.num_epochs):
-            self.run_epoch()
+            print(f"Starting epoch {epoch + 1} of {self.num_epochs}")
+            self.run_train_epoch()
+            self.validate()
 
-    def run_epoch(self):
-        for batch in self.train_loader:
+    def run_train_epoch(self):
+        for batch in tqdm(self.train_loader):
             imgs, labels = batch
-            img = imgs[0]
-            plt.imshow(img)
-            print(img)
-            plt.show()
-            # imgs = imgs.to(self.device)
-            # labels = labels.to(self.device)
+            imgs = imgs.to(self.device)
+            labels = labels.to(self.device)
 
-            # self.optimizer.zero_grad()
-            # test = self.model(imgs)
+            self.optimizer.zero_grad()
+            score, loss = self.model(imgs, compute_loss=True)
+            loss = loss.mean()
+            loss.backward()
+
+            self.optimizer.step()
 
     def validate(self):
-        pass
+        # Run validation
+        total_val_loss = 0
+        num_processed = 0
+        for batch in self.val_loader:
+            imgs, labels = batch
+            imgs = imgs.to(self.device)
 
-    def _make_noisy_input(self, input: torch.Tensor) -> torch.Tensor:
-        pass
+            with torch.no_grad():
+                _, loss = self.model(imgs, compute_loss=True)
+                total_loss = loss.mean().item()
+                total_val_loss += total_loss
+                num_processed += len(batch)
+
+        print(f"Mean validation loss: {total_val_loss / num_processed}")
