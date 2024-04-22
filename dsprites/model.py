@@ -1,9 +1,7 @@
 import torch
 from torch import nn
-from torch.nn import functional as F
-from torch.optim import Adam
 
-from resnet import ResNet
+from .resnet import ResNet
 
 
 class DiffusionModel(nn.Module):
@@ -15,20 +13,26 @@ class DiffusionModel(nn.Module):
         self.var_min = var_min
         self.var_max = var_max
 
-    def forward(self, x: torch.Tensor, compute_loss: bool = True):
+    def variance_schedule(self, t: torch.Tensor):
+        return self.var_min * (self.var_max / self.var_min) ** t
+
+    def forward(self, x: torch.Tensor, compute_loss: bool = True, time_steps=None):
         """Expects x to be a batch of one-channel images with shape (batch, height, width)"""
         # Sample random time steps
-        time_steps = torch.rand(x.shape[0], self.n_steps_per_sample, device=x.device)
+        if time_steps is None:
+            time_steps = torch.rand(
+                x.shape[0], self.n_steps_per_sample, device=x.device
+            )
         # has shape (batch, num_steps_per_sample)
         batch, height, width = x.shape
         x = (
             x[:, None, ...]
-            .expand(-1, self.n_steps_per_sample, -1, -1)
+            .expand(-1, time_steps.shape[1], -1, -1)
             .reshape(-1, height, width)
         )  # Shape: (batch * n_steps_per_sample, height, width)
 
         noise = torch.randn_like(x)
-        noise_var = (time_steps * (self.var_max - self.var_min) + self.var_min).view(
+        noise_var = self.variance_schedule(time_steps).view(
             -1, 1, 1
         )  # Shape: (batch * n_steps_per_sample, 1 (height), 1 (width))
         scaled_noise = noise * torch.sqrt(noise_var)
@@ -39,7 +43,7 @@ class DiffusionModel(nn.Module):
 
         # Mean across channel dimension
         predicted_score = predicted_score.mean(dim=1).view(
-            batch, self.n_steps_per_sample, height, width
+            batch, time_steps.shape[1], height, width
         )
         # New shape: (batch, n_samples, height, width)
 
@@ -47,9 +51,9 @@ class DiffusionModel(nn.Module):
             return predicted_score
         # Write loss function:
         grad_log = (-scaled_noise / noise_var).reshape(
-            batch, self.n_steps_per_sample, height, width
+            batch, time_steps.shape[1], height, width
         )
-        loss_scale = noise_var.reshape(batch, self.n_steps_per_sample)
+        loss_scale = noise_var.reshape(batch, time_steps.shape[1])
 
         loss = torch.square(predicted_score - grad_log).mean(dim=(-1, -2)) / loss_scale
         return predicted_score, loss.mean(axis=1)

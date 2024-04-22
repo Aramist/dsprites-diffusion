@@ -1,5 +1,4 @@
 import os
-import time
 from pathlib import Path
 
 import h5py
@@ -21,7 +20,8 @@ class DSpritesDataset(Dataset):
         return len(self.index)
 
     def build_index(self):
-        mask = self.handle["latents/classes"][:, :5] == np.array([0, 0, 0, 0, 0])
+        # class order: color, shape, scale, orientation, x, y
+        mask = self.handle["latents/classes"][:, :2] == np.array([0, 0])
         mask = mask.all(axis=1)
         indices = np.flatnonzero(mask)
         print(f"Found {len(indices)} images with the specified latent values")
@@ -38,8 +38,7 @@ class DSpritesDataset(Dataset):
         return img, latent
 
 
-def get_dataloader() -> tuple[DataLoader, DataLoader]:
-    dset_path = Path("dataset.hdf5")
+def get_dataloader(dset_path: Path) -> tuple[DataLoader, DataLoader]:
     dset = DSpritesDataset(dset_path)
     try:
         avail_cpus = max(1, len(os.sched_getaffinity(0)) - 1)
